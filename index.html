@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Clock</title>
+
+    <!-- SEO / Social -->
+    <meta name="description" content="A precise, themeable Clock-of-Clocks with GMT offset, 12/24-hour toggle, and auto calibration." />
+    <meta property="og:title" content="Clock" />
+    <meta property="og:description" content="A precise, themeable Clock-of-Clocks with GMT offset, 12/24-hour toggle, and auto calibration." />
+    <meta property="og:type" content="website" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#000000" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="favicon.ico" sizes="any">
+    <link rel="icon" href="icon-192.png" type="image/png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <!-- Perf hints for time API -->
+    <link rel="dns-prefetch" href="https://worldtimeapi.org">
+    <link rel="preconnect" href="https://worldtimeapi.org" crossorigin>
+
+    <style>
+      :root{
+        /* Controls (matching widths) */
+        --control-width: 110px;
+        --toggle-pad: 6px;
+        --toggle-thumb: 24px;
+        --track-w: calc(var(--control-width) - var(--toggle-pad)*2);
+
+        /* Mini clocks */
+        --clock-size: 3.2vw;
+        --gap: calc(var(--clock-size) * .04);
+        --ring: 2px;
+      }
+      @media (max-width:900px){ :root{ --clock-size:4.2vw } }
+      @media (max-width:600px){ :root{ --clock-size:6.0vw; --ring:1px } }
+
+      /* ---------- Themes (capitalized names) ---------- */
+      /* 1) Black (default) */
+      body[data-theme="Black"]{
+        --bg:#000000;
+        --surface:#050505;
+        --stroke:#101010;
+        --primary:#ffffff;
+      }
+      /* 2) Blue */
+      body[data-theme="Blue"]{
+        --bg:#0b0f14;
+        --surface:#0f141d;
+        --stroke:#1d2734;
+        --primary:lightskyblue;
+      }
+      /* 3) Green */
+      body[data-theme="Green"]{
+        --bg:#080d0a;
+        --surface:#0e1511;
+        --stroke:#18241d;
+        --primary:lightgreen;
+      }
+      /* 4) Red */
+      body[data-theme="Red"]{
+        --bg:#0d0808;
+        --surface:#150e0e;
+        --stroke:#241818;
+        --primary:#ff7a7a;
+      }
+      /* 5) Orange */
+      body[data-theme="Orange"]{
+        --bg:#120b06;
+        --surface:#1a120a;
+        --stroke:#2e2215;
+        --primary:#ffbb66;
+      }
+      /* 6) Purple */
+      body[data-theme="Purple"]{
+        --bg:#0b0912;
+        --surface:#13111a;
+        --stroke:#221f2e;
+        --primary:#d2a3ff;
+      }
+
+      html,body{height:100%}
+      *,*::before,*::after{ box-sizing:border-box }
+      body{
+        margin:0; background:var(--bg); color:var(--primary);
+        font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif;
+        min-height:100%;
+        transition: background-color .25s ease, color .25s ease;
+      }
+
+      /* Hide-UI button (top-right) */
+      #uiHide{
+        position:fixed; top:8px; right:8px;
+        width:18px; height:18px; border-radius:4px;
+        background:var(--surface); border:1px solid var(--stroke);
+        color:var(--primary); font-size:10px; line-height:16px; text-align:center;
+        cursor:pointer; opacity:.45; padding:0; z-index:50;
+        transition: background-color .25s ease, color .25s ease, border-color .25s ease, opacity .2s;
+      }
+      #uiHide:hover{ opacity:.85 }
+
+      /* Fixed controls bar so stage can always center */
+      .wrap{
+        position:fixed; top:12px; left:0; right:0;
+        display:flex; justify-content:center; z-index:40;
+      }
+      body.controls-hidden .wrap{ display:none; }
+
+      .controls{
+        display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:center;
+        padding:6px 8px; border-radius:12px;
+      }
+
+      /* Selects (GMT + Theme) */
+      select{
+        width:var(--control-width);
+        background:var(--surface); color:var(--primary);
+        border:1px solid var(--stroke);
+        padding:8px 10px; font:inherit; border-radius:12px; cursor:pointer; text-align:center;
+        appearance:none;
+        transition: background-color .25s ease, color .25s ease, border-color .25s ease;
+      }
+      select option{ color:var(--primary); background:var(--surface); }
+
+      /* Toggle (12/24 Hr) */
+      .toggle{
+        background:var(--surface); border:1px solid var(--stroke);
+        padding:var(--toggle-pad); border-radius:16px; width:var(--control-width);
+        transition: background-color .25s ease, border-color .25s ease;
+      }
+      .toggle-track{
+        position:relative; width:var(--track-w); height:30px;
+        background:var(--surface);
+        border-radius:999px; cursor:pointer; user-select:none; outline:none; display:block;
+        border:1px solid var(--stroke);
+        margin:0 auto;
+        transition: background-color .25s ease, border-color .25s ease;
+      }
+      /* Perfectly centered thumb */
+      .toggle-thumb{
+        position:absolute; left:3px; top:50%;
+        width:var(--toggle-thumb); height:var(--toggle-thumb);
+        background:var(--primary); border-radius:50%;
+        transform: translate(0, -50%);
+        transition: transform .22s ease, background-color .25s ease;
+      }
+      .toggle.right .toggle-thumb{
+        transform: translate(calc(var(--track-w) - var(--toggle-thumb) - 6px), -50%);
+      }
+
+      .toggle-label{
+        position:absolute; top:50%; transform:translateY(-50%);
+        font-size:12px; letter-spacing:.2px; color:var(--primary); pointer-events:none;
+        opacity:0; transition:opacity .18s ease, transform .22s ease, color .25s ease;
+        white-space:nowrap;
+      }
+      .label-left{ left:12px; }
+      .label-right{ right:12px; }
+      .toggle.right .label-left{ opacity:.95; transform:translateY(-50%) translateX(0); }
+      .toggle.right .label-right{ opacity:0;   transform:translateY(-50%) translateX(6px); }
+      .toggle:not(.right) .label-left{  opacity:0;   transform:translateY(-50%) translateX(-6px); }
+      .toggle:not(.right) .label-right{ opacity:.95; transform:translateY(-50%) translateX(0); }
+
+      /* Stage centered */
+      .stage{
+        height:100vh;
+        display:flex; align-items:center; justify-content:center;
+        padding: 6px 10px 18px;
+      }
+      .clock-stack{
+        position:relative; display:flex; align-items:center; justify-content:center; flex-direction:column;
+      }
+
+      /* AM/PM badge (absolute below grid) */
+      .ampm-badge{
+        position:absolute; top:100%; left:50%;
+        transform: translate(-50%, 8px);
+        font-size:12px; padding:3px 8px; border-radius:10px;
+        border:1px solid var(--stroke); background:var(--surface); color:var(--primary);
+        pointer-events:none;
+        transition: background-color .25s ease, color .25s ease, border-color .25s ease;
+      }
+      [data-hide]{ display:none; }
+
+      /* Clock-of-clocks grid */
+      .app{
+        --seg-w: calc(var(--clock-size) * 4 + var(--gap) * 3);
+        --seg-h: calc(var(--clock-size) * 6 + var(--gap) * 5);
+        display:flex; align-items:center; justify-content:center;
+        gap: calc(var(--gap) * 2);
+        flex-wrap:nowrap;
+      }
+      .segment{
+        display:flex; flex-wrap:wrap; gap:var(--gap);
+        width: var(--seg-w); height: var(--seg-h);
+      }
+      .segment:nth-of-type(2), .segment:nth-of-type(4){
+        margin-right: calc(var(--clock-size) + var(--gap));
+      }
+
+      .clock{
+        position:relative;
+        width: var(--clock-size);
+        height: var(--clock-size);
+        border-radius:50%;
+        border: var(--ring) solid var(--stroke);
+        background:var(--surface);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,.12);
+        flex-shrink:0;
+        transition: background-color .25s ease, border-color .25s ease;
+      }
+      /* Hands */
+      .clock::before, .clock::after{
+        content:''; position:absolute;
+        top: 50%; left: 50%;
+        height: 3px;
+        width: calc( (var(--clock-size) * .5) - var(--ring) );
+        transform-origin: 0% 50%;
+        transform: translateY(-50%) rotate(0deg);
+        background:var(--primary); border-radius:9999px;
+        transition: transform .35s ease-in-out, background-color .25s ease;
+      }
+      .clock::before{ transform: translateY(-50%) rotate(calc(var(--hour-angle, 0) * 1deg)); }
+      .clock::after{  transform: translateY(-50%) rotate(calc(var(--minute-angle, 0) * 1deg)); }
+      @media (max-width:600px){
+        .clock::before,.clock::after{ height:2px }
+      }
+    </style>
+  </head>
+  <body data-theme="Black">
+    <noscript>This site needs JavaScript enabled.</noscript>
+
+    <!-- tiny UI hide button -->
+    <button id="uiHide" title="Hide controls" aria-pressed="false">•</button>
+
+    <!-- fixed controls (not affecting centering) -->
+    <div class="wrap">
+      <div class="controls">
+        <select id="offset" aria-label="GMT Offset"></select>
+        <div id="toggleWrapper" class="toggle" role="button" aria-pressed="false" tabindex="0" aria-label="Toggle 12/24 hour">
+          <div class="toggle-track" id="toggleTrack">
+            <div class="toggle-thumb" id="toggleThumb"></div>
+            <span class="toggle-label label-left">24-Hr</span>
+            <span class="toggle-label label-right">12-Hr</span>
+          </div>
+        </div>
+        <!-- Theme selector (capitalized names) -->
+        <select id="theme" aria-label="Theme">
+          <option value="Black">Black</option>
+          <option value="Blue">Blue</option>
+          <option value="Green">Green</option>
+          <option value="Red">Red</option>
+          <option value="Orange">Orange</option>
+          <option value="Purple">Purple</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Clock-of-clocks with AM/PM absolutely below it -->
+    <div class="stage">
+      <div class="clock-stack">
+        <div id="app" class="app"></div>
+        <span id="ampm" class="ampm-badge" data-hide>AM</span>
+      </div>
+    </div>
+
+    <script>
+      // Simple PWA install (optional). Remove these two lines if you don't want SW.
+      if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
+    </script>
+    <script src="script.js"></script>
+  </body>
+</html>
